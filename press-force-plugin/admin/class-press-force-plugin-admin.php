@@ -52,12 +52,12 @@ class Press_Force_Plugin_Admin {
 	 * @param      string    $version    The version of this plugin.
 	 */
 	public function __construct( $plugin_name, $version ) {
+		global $status, $page;
 
 		$this->plugin_name = $plugin_name;
 		$this->version = $version;
 		$this->plugin_cache_path = plugin_dir_path( dirname( __FILE__ ) ) . 'temp/';
 
-		
 
 	}
 
@@ -112,7 +112,6 @@ class Press_Force_Plugin_Admin {
 
 
 	public function admin_menu_display() {
-
 	   	add_menu_page ( 
 		    'Dashboard', 
 		    'Press Force', 
@@ -122,7 +121,6 @@ class Press_Force_Plugin_Admin {
 		    'dashicons-tickets',
 		    1 
 	    );
-
     	$contact_page_hook = add_submenu_page ( 
 		    'press-force', 
 		    'Contacts Page', 
@@ -131,7 +129,6 @@ class Press_Force_Plugin_Admin {
 		    'press-force-contact',
 		    array($this, 'contacts_display')
 	    );
-
    		add_submenu_page (
 		    'press-force', 
 		    'Settings Page', 
@@ -141,17 +138,12 @@ class Press_Force_Plugin_Admin {
 		    array($this, 'settings_display')
 		
 	    );
-
-		//menu for wordpress settings page
-		// $my_admin_page = add_options_page(__('My Admin Page', 'map'), __('My Admin Page', 'map'), 'manage_options', 'map', 'my_admin_page');
-
 	    add_action('load-'.$contact_page_hook, array($this, 'contact_help_screen'));
-
 		add_action('load-'.$contact_page_hook, array($this, 'contact_screen_option'));
-
 	}
 
-	function contact_help_screen () {
+	function contact_help_screen () 
+	{
 	    $screen = get_current_screen();
 	    $screen->add_help_tab( 
 	    	array(
@@ -171,11 +163,7 @@ class Press_Force_Plugin_Admin {
 
 	function display_screen_option()
 	{ 
-
-		// /services/data/v36.0/sobjects/Contact/describe
-
 		$options = get_option('salesforce_settings');
-
 		$salesforce = new SalesforceAPI(
 			$options['url'],
 			'32.0',
@@ -183,12 +171,8 @@ class Press_Force_Plugin_Admin {
 			$options['client_secret'],
 			$options['redirect_uri']
 		);
-
 		$salesforce->getAccessToken($options['token']);
-
 		$contacts_field = $salesforce->getsObject('sobjects/Contact/describe/');
-
-
 		require_once('partials/press-force-contact-screenoption-display.php');
 	}
 
@@ -199,13 +183,15 @@ class Press_Force_Plugin_Admin {
 
 
 
-	public function dashboard_display(){
+	public function dashboard_display()
+	{
 		global $title;
 
 		require_once('partials/press-force-plugin-admin-display.php');
 	}
 
-	public function contacts_display(){
+	public function contacts_display()
+	{
 
 		if( !get_option('salesforce_settings') ) 
 		{
@@ -350,11 +336,12 @@ class Press_Force_Plugin_Admin {
         }
 
         $contact_list_table->prepare_items();
-
+        
 		require_once('partials/press-force-plugin-contacts-display.php');
 	}
 
-	public function settings_display(){
+	public function settings_display()
+	{
 
 		global $title;
 
@@ -404,8 +391,8 @@ class Press_Force_Plugin_Admin {
 	}
 
 
-	public function prefix_admin_settings(){
-		// Adds the action to the hook
+	public function prefix_admin_settings()
+	{
 
 		update_option('salesforce_settings', array(
 				'client_id' 		=> $_POST['client_id'],
@@ -423,6 +410,7 @@ class Press_Force_Plugin_Admin {
 		$auth_url = $options['login_uri'] . "/services/oauth2/authorize?response_type=code&client_id=" . $options['client_id'] . "&redirect_uri=" . urlencode($options['redirect_uri']);
 
 		// wp_redirect( add_query_arg( array('page' => 'press-force-settings'), 'admin.php' ));
+
 		wp_redirect($auth_url);
 
 	}
@@ -462,6 +450,7 @@ if( ! class_exists( 'WP_List_Table' ) ) {
 
 class Contact_List_Table extends WP_List_Table
 {
+
     /**
      * Prepare the items for the table to process
      *
@@ -489,13 +478,164 @@ class Contact_List_Table extends WP_List_Table
         	) 
     	);
  
+      	$this->process_bulk_action();
+
         $data = array_slice($data,(($currentPage-1)*$perPage),$perPage);
  
         $this->_column_headers = array($columns, $hidden, $sortable);
 
         $this->items = $data;
+
     }
- 
+
+	public function column_cb($item){
+        return sprintf(
+            '<input type="checkbox" name="%1$s[]" value="%2$s" />',
+            /*$1%s*/ 'contacts',  			//Let's simply repurpose the table's singular label ("video")
+            /*$2%s*/ $item['salesforce_id']             //The value of the checkbox should be the record's id
+        );
+    }
+
+    public function get_bulk_actions() {
+        return array(
+                'sync' => __( 'Sync'),
+                'update' => __( 'Update'),
+        );
+    }
+
+	public function process_bulk_action() {
+
+        // security check!
+        if ( isset( $_POST['_wpnonce'] ) && ! empty( $_POST['_wpnonce'] ) ) {
+
+            $nonce  = filter_input( INPUT_POST, '_wpnonce', FILTER_SANITIZE_STRING );
+            $action = 'bulk-' . $this->_args['plural'];
+
+            if ( ! wp_verify_nonce( $nonce, $action ) )
+                wp_die( 'Nope! Security check failed!' );
+
+        }
+
+        $action = $this->current_action();
+
+        switch ( $action ) {
+
+            case 'sync':
+                // wp_die( 'Delete something' );
+            	$pressforce = new Press_Force_Plugin_Admin('press-force-plugin', '1.0.0');
+
+            	$jsondb = new JsonDB($pressforce->plugin_cache_path);
+
+				if(isset($_POST['contacts']) && is_array($_POST['contacts']))
+				{
+					foreach($_POST['contacts'] as $contact)
+					{
+						$record = $jsondb->select('salesforce_contacts', 'salesforce_id', $contact);
+							
+						if(count($record) > 0){
+				
+							$contact_info = $record[0];
+
+						  	if(!email_exists( $contact_info['email'] )) {
+
+								$random_password = wp_generate_password( $length=12, $include_standard_special_chars=false );
+								
+								$userdata = array(
+								    'user_login'  		=>  $contact_info['email'],
+								    'user_email'  		=>  $contact_info['email'],
+								    'nickname'	  		=>  $contact_info['firstName'] . ' ' . $contact_info['lastName'],
+								    'first_name'  		=>  $contact_info['firstName'],
+								    'last_name'   		=>  $contact_info['lastName'],
+								    'user_pass'   		=>  $random_password  // When creating an user, `user_pass` is expected.
+								);
+
+								$user_id = wp_insert_user( $userdata );
+
+								update_user_meta($user_id, 'user_salesforce_id',$contact_info['salesforce_id']);
+
+								if ( ! is_wp_error( $user_id ) ) 
+								{
+									echo '<div id="message" class="updated notice is-dismissible"><p>Contact email <b>' . $contact_info['email'] . '</b> successfully sync.</p></div>';
+								}
+								else
+								{
+									echo '<div id="error" class="error  is-dismissible"><p>Contact email <b>' . $contact_info['email'] . '</b> already exist!</p></div>';
+								}
+							}
+							else
+							{
+								echo '<div id="error" class="error  is-dismissible"><p>Contact email <b>' . $contact_info['email'] . '</b> already exist!</p></div>';
+							}
+						}
+					}
+				}
+				unset($action);
+                break;
+ 			case 'update':
+            	$pressforce = new Press_Force_Plugin_Admin('press-force-plugin', '1.0.0');
+
+            	$jsondb = new JsonDB($pressforce->plugin_cache_path);
+
+				if(isset($_POST['contacts']) && is_array($_POST['contacts']))
+				{
+					foreach($_POST['contacts'] as $contact)
+					{
+						$record = $jsondb->select('salesforce_contacts', 'salesforce_id', $contact);
+							
+						if(count($record) > 0){
+				
+							$contact_info = $record[0];
+							
+							$user_id = email_exists( $contact_info['email'] );
+
+							if( email_exists( $contact_info['email'] )) 
+							{
+								$userdata = array(
+									'ID'				=>  $user_id,
+								    'user_login'  		=>  $contact_info['email'],
+								    'user_email'  		=>  $contact_info['email'],
+								    'nickname'	  		=>  $contact_info['firstName'] . ' ' . $contact_info['lastName'],
+								    'first_name'  		=>  $contact_info['firstName'],
+								    'last_name'   		=>  $contact_info['lastName'],
+								);
+
+								$user_id = wp_update_user($userdata);
+
+								if ( ! is_wp_error( $user_id ) ) 
+								{
+									echo '<div id="message" class="updated notice is-dismissible"><p>Contact email <b>' . $contact_info['email'] . '</b> successfully updated.</p></div>';
+								}
+								else
+								{
+									echo '<div id="error" class="error  notice is-dismissible"><p>Contact email <b>' . $contact_info['email'] . '</b> update failed!</p></div>';
+								}
+							}
+							else
+							{
+								echo '<div id="error" class="error  notice is-dismissible"><p>Contact email <b>' . $contact_info['email'] . '</b> does not exist!</p></div>';
+							}
+
+						}
+					}
+				}
+ 				break;
+            default:
+                // do nothing or something else
+                return;
+                break;
+        }
+
+        return;
+    }
+
+	public function column_name($item) {
+	    $actions = array(
+	        'edit' => sprintf('<a href="?page=%s&action=%s& hotel=%s">Edit</a>',$_REQUEST['page'],'edit',$item['id']),
+	        'delete' => sprintf('<a href="?page=%s&action=%s&hotel=%s">Delete</a>',$_REQUEST['page'],'delete',$item['id']),
+	    );
+	    return sprintf('%1$s %2$s', $item['Name'], $this->row_actions($actions) );
+	}
+
     /**
      * Override the parent columns method. Defines the columns to use in your listing table
      *
@@ -504,7 +644,7 @@ class Contact_List_Table extends WP_List_Table
     public function get_columns()
     {
         $columns = array(
-            'id'          		=> 'ID',
+    	 	'cb'    => '<input type="checkbox" />', // this is all you need for the bulk-action checkbox
             'salesforce_id'     => 'Salesforce ID',
             'email'     => 'Email',
             'firstName'       	=> 'First Name',

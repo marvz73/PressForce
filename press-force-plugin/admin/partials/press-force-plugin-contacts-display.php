@@ -18,11 +18,12 @@
 <div class="wrap">
 	<h1><?php echo $title ?></h1>
 	
-
 <?php 
-
-$contact_list_table->search_box('search', 'search_id');
-
-$contact_list_table->display(); ?>
+	$contact_list_table->search_box('search', 'search_id');
+	echo '<form id="wpse-list-table-form" method="post">';
+	// $contact_list_table->prepare_items();
+	$contact_list_table->display(); 
+	echo '</form>';
+?>
 	
 </div>
